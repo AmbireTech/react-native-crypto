@@ -1,5 +1,5 @@
 {
-  "name": "react-native-ambire-crypto",
+  "name": "@ambire/react-native-crypto",
   "version": "1.0.0",
   "description": "Rust-accelerated keccak256, hex and ABI coding for the Ambire wallet",
   "homepage": "https://www.ambire.com",

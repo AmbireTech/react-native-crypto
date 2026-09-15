@@ -1,11 +1,11 @@
-# react-native-ambire-crypto
+# @ambire/react-native-crypto
 
 Rust functions for the Ambire mobile wallet, exposed to Hermes over JSI with
 [uniffi-bindgen-react-native][ubrn] (ubrn). It exists because a few hot functions
 cost more in Hermes than the whole rest of a portfolio update.
 
 ```sh
-yarn add react-native-ambire-crypto
+yarn add @ambire/react-native-crypto
 cd ios && pod install
 ```
 
