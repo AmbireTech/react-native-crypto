@@ -110,7 +110,7 @@ jobs:
         # npm publish succeeds with an empty package. The app then silently
         # falls back to the slow JavaScript path.
         run: |
-          test -f "$ANDROID_JNI_LIBS/arm64-v8a/libambire_crypto.a"
+          test -f "$ANDROID_JNI_LIBS/arm64-v8a/libambire_crypto.so"
           test -f "$IOS_XCFRAMEWORK/Info.plist"
 
       - name: Publish

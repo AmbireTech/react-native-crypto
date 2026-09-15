@@ -133,7 +133,7 @@ Written by hand:
 
 Build output, gitignored and rebuilt by CI:
 
-- `android/src/main/jniLibs/` one static library per ABI
+- `android/src/main/jniLibs/` one shared library per ABI
 - `AmbireCryptoFramework.xcframework/`
 
 To change the ABI or architecture list, edit `ubrn.config.yaml`, not

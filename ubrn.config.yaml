@@ -16,6 +16,11 @@ android:
     - armeabi-v7a
     - x86_64
     - x86
+  # Link the Rust as a shared library rather than a static one. The static
+  # archive bundles every upstream rlib, std included, which makes it ~25MB per
+  # ABI against ~1.2MB for the linked .so. The app only ever loads the .so, so
+  # the difference is pure weight in git, in the npm tarball and in CI.
+  useSharedLibrary: true
 ios:
   # Spelled out rather than left to ubrn's defaults, which pick the simulator
   # triple from the host architecture — an Apple Silicon Mac would produce an
