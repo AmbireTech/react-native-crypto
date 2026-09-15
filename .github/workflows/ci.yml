@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install the Rust toolchain
+        run: rustup component add rustfmt clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Format, lint and test
+        run: yarn rust:check
+
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Type check
+        run: yarn typecheck
+
+  bindings:
+    name: Bindings are in step with the Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+            node_modules/uniffi-bindgen-react-native/target
+          key: bindings-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'yarn.lock') }}
+          restore-keys: bindings-${{ runner.os }}-
+
+      - name: Regenerate the bindings
+        # bindgen runs prettier over the TypeScript, which is why prettier and
+        # .prettierrc.js are part of this package. It would also run
+        # clang-format over the C++ if it found one; the committed C++ is
+        # unformatted, so do not install one here.
+        run: yarn bindings:generate
+
+      - name: Fail if they differ from what is committed
+        # Stale bindings do not fail any build. They make initialize() throw at
+        # app boot, because the uniffi checksums no longer match the crate.
+        run: git diff --exit-code -- cpp/generated src/generated

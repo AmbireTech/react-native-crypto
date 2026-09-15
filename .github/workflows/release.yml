@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  ANDROID_JNI_LIBS: android/src/main/jniLibs
+  IOS_XCFRAMEWORK: AmbireCryptoFramework.xcframework
+
+jobs:
+  build-android:
+    name: Build the Android libraries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Add the Android Rust targets
+        # Every ABI in ubrn.config.yaml. A missing one installs fine and then
+        # crashes when the module loads on that device.
+        run: >
+          rustup target add
+          aarch64-linux-android armv7-linux-androideabi
+          x86_64-linux-android i686-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build
+        run: yarn binaries:android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-jni-libs
+          path: ${{ env.ANDROID_JNI_LIBS }}
+          if-no-files-found: error
+
+  build-ios:
+    name: Build the iOS xcframework
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Add the iOS Rust targets
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+
+      - name: Build
+        run: yarn binaries:ios
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcframework
+          path: ${{ env.IOS_XCFRAMEWORK }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    permissions:
+      # Lets npm mint a short-lived token from this run instead of a stored
+      # secret, and stamp the package with provenance.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Check the tag against the version in package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version." >&2
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-jni-libs
+          path: ${{ env.ANDROID_JNI_LIBS }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-xcframework
+          path: ${{ env.IOS_XCFRAMEWORK }}
+
+      - name: Check the binaries made it into place
+        # npm publish succeeds with an empty package. The app then silently
+        # falls back to the slow JavaScript path.
+        run: |
+          test -f "$ANDROID_JNI_LIBS/arm64-v8a/libambire_crypto.a"
+          test -f "$IOS_XCFRAMEWORK/Info.plist"
+
+      - name: Publish
+        # --ignore-scripts because this job installs no dependencies and the
+        # `prepare` script would look for patch-package and fail. Nothing in
+        # this package needs a prepack step; the binaries arrive as artifacts.
+        run: npm publish --provenance --ignore-scripts

@@ -16,6 +16,8 @@
     "ubrn.config.yaml",
     "*.podspec",
     "*.xcframework",
+    "AmbireCryptoFramework.xcframework",
+    "!rust/target",
     "!ios/build",
     "!android/build",
     "!android/gradle",
@@ -27,14 +29,17 @@
     "!**/__mocks__"
   ],
   "scripts": {
-    "ubrn:android": "../../node_modules/.bin/ubrn build android --config ubrn.config.yaml --release --and-generate && yarn ubrn:postgenerate",
-    "ubrn:ios": "../../node_modules/.bin/ubrn build ios --config ubrn.config.yaml --release --and-generate && yarn ubrn:postgenerate",
+    "bindings:generate": "cd rust && cargo build --lib --locked && ubrn generate jsi bindings --library target/debug/libambire_crypto.so --ts-dir ../src/generated --cpp-dir ../cpp/generated && cd .. && yarn ubrn:postgenerate",
+    "binaries:android": "ubrn build android --config ubrn.config.yaml --release",
+    "binaries:ios": "ubrn build ios --config ubrn.config.yaml --release",
     "ubrn:postgenerate": "node scripts/forceNativeStringDecoder.js",
     "ubrn:clean": "rm -rfv cpp/ android/CMakeLists.txt android/src/main/java android/*.cpp ios/ src/Native* src/index.*ts* src/generated/",
     "rust:test": "cd rust && cargo test --locked",
     "rust:lint": "cd rust && cargo clippy --all-targets --all-features --locked -- -D warnings",
     "rust:fmt": "cd rust && cargo fmt",
-    "rust:check": "yarn rust:fmt --check && yarn rust:lint && yarn rust:test"
+    "rust:check": "yarn rust:fmt --check && yarn rust:lint && yarn rust:test",
+    "typecheck": "tsc --noEmit --project tsconfig.build.json",
+    "prepare": "patch-package"
   },
   "keywords": [
     "react-native",
@@ -45,14 +50,16 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AmbireTech/ambire-mobile.git"
+    "url": "git+https://github.com/AmbireTech/react-native-ambire-crypto.git"
   },
   "dependencies": {
-    "@ubjs/core": "0.31.0-3"
+    "@ubjs/core": "0.31.0-3",
+    "uniffi-bindgen-react-native": "0.31.0-3"
   },
   "peerDependencies": {
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "viem": "2.45.2"
   },
   "codegenConfig": {
     "name": "RNAmbireCryptoSpec",
@@ -65,5 +72,19 @@
     "android": {
       "javaPackageName": "com.ambirecrypto"
     }
+  },
+  "bugs": {
+    "url": "https://github.com/AmbireTech/react-native-ambire-crypto/issues"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.10",
+    "patch-package": "8.0.0",
+    "prettier": "3.3.3",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -83,12 +83,17 @@ lib/
 # expects — the script that generates shippable codegen hardcodes
 # com.facebook.fbreact.specs instead.
 
-# Cargo's build directory. Ignored because it is ~1.6GB of intermediates; the
-# artifacts that matter are copied out into jniLibs and ios by ubrn and are
-# committed.
+# Cargo's build directory, ~1.6GB of intermediates. ubrn copies the artifacts
+# that matter out of it into jniLibs and the xcframework.
 rust/target/
 
-# Everything else ubrn produces — the bindings, the platform glue and the
-# compiled Rust — is committed on purpose, so a clone can build the app without
-# a Rust toolchain. Whoever changes rust/ re-runs `yarn ubrn:android` (and
-# `yarn ubrn:ios` on a Mac) and commits the result.
+# The compiled Rust. Built by the release workflow and shipped in the npm
+# tarball, never committed — the unstripped archives are tens of megabytes each
+# and a rebuild produces a fresh copy of every one of them.
+AmbireCryptoFramework.xcframework/
+android/src/main/jniLibs/
+
+# Everything else ubrn produces — the bindings and the platform glue — is
+# committed on purpose, so a clone can regenerate nothing and still be a valid
+# package. Whoever changes rust/ re-runs `yarn ubrn:android` (and `yarn ubrn:ios`
+# on a Mac) and commits the result; CI fails the PR if they drift apart.

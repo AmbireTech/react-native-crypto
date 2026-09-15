@@ -1,0 +1,10 @@
+# npm falls back to .gitignore when this file is missing, which would drop the
+# compiled Rust from the tarball and ship a package that throws at app boot.
+# With this file present the `files` allowlist in package.json is what decides.
+
+# Cargo intermediates. rust/ ships (the crate source is the record of what the
+# binaries were built from) but its build directory is ~1.6GB.
+rust/target/
+
+# Gradle and CMake scratch inside the shipped android/ tree.
+android/.cxx/
