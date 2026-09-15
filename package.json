@@ -50,7 +50,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AmbireTech/react-native-ambire-crypto.git"
+    "url": "git+https://github.com/AmbireTech/react-native-crypto.git"
   },
   "dependencies": {
     "@ubjs/core": "0.31.0-3",
@@ -74,7 +74,7 @@
     }
   },
   "bugs": {
-    "url": "https://github.com/AmbireTech/react-native-ambire-crypto/issues"
+    "url": "https://github.com/AmbireTech/react-native-crypto/issues"
   },
   "devDependencies": {
     "@types/react": "19.1.10",
