@@ -5,9 +5,11 @@ version = "1.0.0"
 publish = false
 
 [lib]
-# `lib` so the unit tests in tests.rs can reach the crate; `cdylib` is what
-# ships (see useSharedLibrary in ubrn.config.yaml).
-crate-type = ["lib", "cdylib"]
+# `lib` so the unit tests in tests.rs can reach the crate. Android ships the
+# `cdylib` because useSharedLibrary in ubrn.config.yaml links it as a shared
+# library; iOS ships the `staticlib`, which is what lipo builds the xcframework
+# slices from. Dropping either one fails only that platform's build.
+crate-type = ["lib", "cdylib", "staticlib"]
 name = "ambire_crypto"
 
 [dependencies]
