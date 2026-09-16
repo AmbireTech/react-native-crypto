@@ -1,0 +1,5 @@
+# The generated C++ is committed and CI fails a PR whose bindings differ, so the
+# style has to come from here rather than from whatever clang-format defaults to
+# on the machine that runs the generate. The binary is pinned in devDependencies
+# for the same reason.
+BasedOnStyle: LLVM

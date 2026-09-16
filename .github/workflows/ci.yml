@@ -76,10 +76,12 @@ jobs:
           restore-keys: bindings-${{ runner.os }}-
 
       - name: Regenerate the bindings
-        # bindgen runs prettier over the TypeScript, which is why prettier and
-        # .prettierrc.js are part of this package. It would also run
-        # clang-format over the C++ if it found one; the committed C++ is
-        # unformatted, so do not install one here.
+        # bindgen formats what it writes with whatever prettier and clang-format
+        # it finds on PATH, so both are pinned devDependencies and both styles
+        # are pinned in .prettierrc.js and .clang-format. yarn puts
+        # node_modules/.bin first, which is what stops the runner's own
+        # clang-format from reformatting the committed C++ and failing the diff
+        # below.
         run: yarn bindings:generate
 
       - name: Fail if they differ from what is committed
