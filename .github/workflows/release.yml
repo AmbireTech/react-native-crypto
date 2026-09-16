@@ -4,18 +4,20 @@ on:
   push:
     tags:
       - 'v*'
-  # A manual run builds both platforms and packs the tarball without publishing,
+  # A manual run builds both platforms and packs the tarball without staging,
   # so the release path can be proven before a version number is spent on it.
   workflow_dispatch:
     inputs:
-      publish:
-        description: Publish to npm. Leave off to build and pack only.
+      stage:
+        description: Stage to npm for approval. Leave off to build and pack only.
         type: boolean
         default: false
 
 env:
   ANDROID_JNI_LIBS: android/src/main/jniLibs
   IOS_XCFRAMEWORK: AmbireCryptoFramework.xcframework
+  # npm stage landed in 11.15.0; the npm bundled with Node is often older.
+  NPM_VERSION: ^11.15.0
 
 jobs:
   build-android:
@@ -79,7 +81,7 @@ jobs:
           if-no-files-found: error
 
   package:
-    name: Pack and publish
+    name: Pack and stage
     needs: [build-android, build-ios]
     runs-on: ubuntu-latest
     permissions:
@@ -94,6 +96,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
+
+      - name: Install npm
+        run: npm install -g "npm@$NPM_VERSION"
 
       - name: Check the tag against the version in package.json
         if: github.event_name == 'push'
@@ -116,8 +121,8 @@ jobs:
           path: ${{ env.IOS_XCFRAMEWORK }}
 
       - name: Check the binaries made it into place
-        # npm publish succeeds with an empty package. The app then silently
-        # falls back to the slow JavaScript path.
+        # A staged package with nothing in it approves just as cleanly as a full
+        # one. The app then silently falls back to the slow JavaScript path.
         run: |
           test -f "$ANDROID_JNI_LIBS/arm64-v8a/libambire_crypto.so"
           test -f "$IOS_XCFRAMEWORK/Info.plist"
@@ -135,8 +140,25 @@ jobs:
           path: '*.tgz'
           if-no-files-found: error
 
-      - name: Publish
-        # Packs a second time rather than publishing the tarball above, because
-        # provenance is only known to work on the directory form.
-        if: github.event_name == 'push' || inputs.publish
-        run: npm publish --provenance --ignore-scripts
+      - name: Stage
+        # Nothing is public yet. A maintainer approves the staged version with
+        # 2FA, and only then does it reach the registry. Packs a second time
+        # rather than staging the tarball above, because provenance is only
+        # known to work on the directory form; trusted publishing stamps it
+        # without --provenance.
+        if: github.event_name == 'push' || inputs.stage
+        run: npm stage publish --ignore-scripts
+
+      - name: Summarise what is waiting for approval
+        if: github.event_name == 'push' || inputs.stage
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          {
+            echo "### Staged, waiting for approval"
+            echo
+            echo '```'
+            npm stage list "$name"
+            echo '```'
+            echo
+            echo "Approve with \`npm stage approve <stage-id>\` (needs 2FA)."
+          } >> "$GITHUB_STEP_SUMMARY"

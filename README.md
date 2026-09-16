@@ -170,17 +170,32 @@ The JavaScript shims are tested in the consuming app rather than here - see
 
 Bump `version` in `package.json`, merge, then push a matching `v*` tag. The
 release workflow builds both platforms, checks the tag against the version and
-publishes to npm with provenance, authenticated over OIDC with no stored token.
-A tag that does not match the version fails the job rather than publishing.
+stages the package on npm with provenance, authenticated over OIDC with no
+stored token. A tag that does not match the version fails the job rather than
+staging.
+
+Staging is not publishing. The version sits on the registry unavailable to
+anyone until a maintainer approves it with 2FA:
+
+```sh
+npm stage list @ambire/react-native-crypto
+npm stage view <stage-id>
+npm stage approve <stage-id>
+```
+
+The run summary of the release workflow lists what is waiting. `npm stage
+reject <stage-id>` throws a bad build away instead. Both need npm 11.15.0 or
+later.
 
 To exercise that path without releasing, run the workflow manually from the
-Actions tab and leave `publish` off. It builds both platforms, checks the
+Actions tab and leave `stage` off. It builds both platforms, checks the
 binaries are in place and uploads the packed tarball as an artifact, but stops
-short of publishing.
+short of staging.
 
 The one exception is the very first publish of a new package name. npm only
-exposes the trusted-publisher form on a package that already exists, so a name
-has to be bootstrapped by hand once before OIDC can take over.
+exposes the trusted-publisher form, and only accepts a staged version, on a
+package that already exists, so a name has to be bootstrapped by hand once
+before OIDC can take over.
 
 ## Layout
 
