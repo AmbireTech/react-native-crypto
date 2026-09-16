@@ -1,36 +1,84 @@
 # @ambire/react-native-crypto
 
-Rust functions for the Ambire mobile wallet, exposed to Hermes over JSI with
-[uniffi-bindgen-react-native][ubrn] (ubrn). It exists because a few hot functions
-cost more in Hermes than the whole rest of a portfolio update.
+[![npm](https://img.shields.io/npm/v/@ambire/react-native-crypto)](https://www.npmjs.com/package/@ambire/react-native-crypto)
+
+Rust implementations of six hot [viem][viem] functions, exposed to Hermes over
+JSI with [uniffi-bindgen-react-native][ubrn] (ubrn).
+
+Built for and used by the mobile wallet in [AmbireTech/extension][extension],
+where these six functions cost more in Hermes than the whole rest of a portfolio
+update. Moving them to Rust is what makes the mobile portfolio load at a
+reasonable speed.
+
+## Install
 
 ```sh
 yarn add @ambire/react-native-crypto
 cd ios && pod install
 ```
 
-The npm tarball carries the compiled Rust for every Android ABI and both iOS
-architectures, so installing it needs no Rust toolchain. Only contributors who
-change `rust/` need one.
+The npm tarball carries the compiled Rust for every Android ABI and for iOS
+device and simulator, so installing needs no Rust toolchain. Only contributors
+who change `rust/` need one.
 
-## What it exports
+Requires React Native with the New Architecture and Hermes. `viem` is a peer
+dependency, pinned to the exact version the Rust was written against - see
+[Parity with viem](#parity-with-viem).
 
-`bytesToHex`, `checksumAddress`, `decodeFunctionResult`, `encodeFunctionData`,
-`hexToBytes` and `keccak256`.
+## API
 
-These match [viem][viem]'s behaviour, quirks included, not just the spec —
+```ts
+import {
+  bytesToHex,
+  checksumAddress,
+  decodeFunctionResult,
+  encodeFunctionData,
+  hexToBytes,
+  keccak256
+} from '@ambire/react-native-crypto'
+
+const calldata = encodeFunctionData(
+  JSON.stringify(erc20Abi),
+  'transfer',
+  JSON.stringify([recipient, { $bigint: '1000000000000000000' }])
+)
+```
+
+| Function | Signature | Throws |
+|---|---|---|
+| `bytesToHex` | `(input: ArrayBuffer) => string` | no |
+| `checksumAddress` | `(address: string) => string` | on a non-address |
+| `decodeFunctionResult` | `(abiJson, functionName, dataHex) => string` | `AbiError` |
+| `encodeFunctionData` | `(abiJson, functionName, argsJson) => string` | `AbiError` |
+| `hexToBytes` | `(input: string) => ArrayBuffer` | on malformed hex |
+| `keccak256` | `(input: ArrayBuffer) => ArrayBuffer` | no |
+
+The ABI functions take and return JSON strings rather than objects, because
+crossing JSI once with a string beats crossing it repeatedly with a structured
+value. Integers come back as JSON numbers up to 48 bits and as a
+`{"$bigint":"<decimal>"}` tag above that, which is the widest integer Hermes
+represents exactly.
+
+## Parity with viem
+
+These match viem's *behaviour*, quirks included, not just the spec.
 `checksumAddress` recomputes a checksum rather than validating the one it is
 given, and the address parser accepts exactly what viem's `isAddress` accepts.
+
 `peerDependencies` pins the viem version the Rust was written against, because a
 viem bump can change what "matching" means with nothing here failing to compile.
+Treat a viem upgrade as a change that needs the parity tests re-read, not a
+version bump.
 
-The app does not import this package directly. Metro redirects viem's own
+Ambire's app does not import this package directly. Metro redirects viem's own
 modules to shims that call these functions, so viem's internals use the native
 versions too. Each shim falls back to viem when the native module is missing or
 does not accept the input, so a build without the Rust part is slower but still
 correct.
 
-## Changing the Rust
+## Contributing
+
+### Changing the Rust
 
 Two separate steps, because they are needed at different times.
 
@@ -43,8 +91,8 @@ yarn bindings:generate
 
 It builds the crate for the host, has ubrn read the exported functions out of
 the resulting library, writes `src/generated/` and `cpp/generated/`, then
-applies the post-generate patch described below. Adding, removing or changing an
-exported function changes the uniffi checksums; stale bindings make
+applies the [post-generate patch](#the-post-generate-patch). Adding, removing or
+changing an exported function changes the uniffi checksums; stale bindings make
 `initialize()` throw at app boot rather than failing any build, so this is not
 optional. Commit the result with your Rust change.
 
@@ -65,9 +113,10 @@ yarn binaries:ios
 ```
 
 The target lists match `ubrn.config.yaml`, which covers every Android ABI React
-Native builds for and both iOS device and simulator architectures. If you drop
-one, the build still passes. The app then installs on those devices and crashes
-when the module loads.
+Native builds for and both iOS device and simulator architectures. Dropping one
+fails nothing at build time. The module then throws on load on those devices,
+and a consumer that catches that - as Ambire's app does - just runs slower with
+no other sign.
 
 Both scripts build the `release` profile. In the `dev` profile the crate ends up
 slower than the JavaScript it replaces, with nothing in the logs to say so.
@@ -79,23 +128,23 @@ would overwrite the hand-maintained git URL in `AmbireCrypto.podspec`. Run
 `ubrn build <platform> --config ubrn.config.yaml --release --and-generate` by
 hand if you ever need it back, and re-apply that URL.
 
-## The post-generate patch
+### The post-generate patch
 
 `scripts/forceNativeStringDecoder.js` rewrites one block of
 `src/generated/ambire_crypto.ts` after every generate.
 
-ubrn's template uses a global `TextDecoder` if one exists and keeps its own C++
-helper as the fallback, because it assumes Hermes has none. The app installs a
-JavaScript polyfill (`@zxing/text-encoding`, via `@ethersproject/shims`), so the
-check passes and every string Rust returns is decoded byte by byte on the JS
-thread. That costs about a second per portfolio reload, more than the native
-decode saves. The patch forces the C++ decoder, which is always compiled in.
+ubrn's template picks a global `TextDecoder` when one exists and keeps its own
+C++ helper as the fallback, on the assumption that Hermes has none. In Ambire's
+app one does exist, so the check passes and every string Rust returns is decoded
+byte by byte on the JS thread. Profiling a portfolio reload put that at about a
+second, which is more than the native call saves in the first place. The patch
+forces the C++ decoder, which is compiled in unconditionally.
 
 The script is idempotent and exits non-zero if the generated code no longer
 looks like what it expects, so a ubrn upgrade breaks the build instead of
 silently bringing back the slow path.
 
-`src/generated/ambire_crypto.ts` is shared by both platforms, so an iOS build
+`src/generated/ambire_crypto.ts` is shared by both platforms, so an iOS generate
 that skips this step also reverts Android.
 
 `patches/uniffi-bindgen-react-native+0.31.0-3.patch` is unrelated to that
@@ -103,15 +152,39 @@ script. It adds `"./package.json"` to ubrn's own `exports` map, which ubrn needs
 to resolve itself during binding generation. `yarn install` applies it through
 the `prepare` script.
 
-## Releasing
+### Tests
+
+`yarn rust:check` runs `cargo fmt --check`, clippy and the 67 tests in
+`rust/src/tests.rs`, which is what CI runs on every PR. They cover the exported
+functions including the viem parity rules that are easy to get wrong: integers
+of 48 bits or fewer decode to plain JavaScript numbers and anything wider to a
+BigInt tag, and `checksum_address` recomputes a checksum instead of validating
+the one it is given.
+
+The JavaScript shims are tested in the consuming app rather than here - see
+`src/mobile/shims/viem/getAddress.test.ts` and
+`src/mobile/services/nativeAbi/nativeAbiDecode.test.ts` in
+[AmbireTech/extension][extension].
+
+### Releasing
 
 Bump `version` in `package.json`, merge, then push a matching `v*` tag. The
 release workflow builds both platforms, checks the tag against the version and
-publishes to npm. Nothing publishes from a laptop.
+publishes to npm with provenance, authenticated over OIDC with no stored token.
+A tag that does not match the version fails the job rather than publishing.
+
+To exercise that path without releasing, run the workflow manually from the
+Actions tab and leave `publish` off. It builds both platforms, checks the
+binaries are in place and uploads the packed tarball as an artifact, but stops
+short of publishing.
+
+The one exception is the very first publish of a new package name. npm only
+exposes the trusted-publisher form on a package that already exists, so a name
+has to be bootstrapped by hand once before OIDC can take over.
 
 ## Layout
 
-Generated by ubrn, do not edit (`yarn ubrn:clean` lists them):
+Generated by ubrn, do not edit:
 
 - `cpp/` C++ bindings and the JSI installer
 - `src/generated/` TypeScript bindings
@@ -124,9 +197,14 @@ Generated by ubrn, do not edit (`yarn ubrn:clean` lists them):
 - `ios/` Objective-C++ turbo-module
 - `AmbireCrypto.podspec` the git URL and tag in it are hand-maintained
 
+`yarn ubrn:clean` removes most of these before a full regenerate. It
+deliberately leaves `android/build.gradle`, `AmbireCrypto.podspec` and the
+Android manifests alone, because `bindings:generate` does not rewrite them.
+
 Written by hand:
 
-- `rust/src/lib.rs` the implementation and its tests
+- `rust/src/lib.rs` the implementation
+- `rust/src/tests.rs` the test suite
 - `ubrn.config.yaml` build configuration
 - `scripts/` the post-generate patch
 - `android/proguard-rules.pro` see the comment in the file
@@ -147,18 +225,10 @@ that produces shippable codegen hardcodes `com.facebook.fbreact.specs` instead.
 `codegenConfig.outputDir` in `package.json` points both platforms at the right
 place.
 
-## Tests
+## License
 
-`yarn rust:check` runs `cargo fmt --check`, clippy and the test suite, which is
-what CI runs on every PR. The tests cover the exported functions, including the
-viem parity rules that are easy to get wrong: integers of 48 bits or fewer
-decode to plain JavaScript numbers and anything wider to a BigInt tag, and
-`checksum_address` recomputes a checksum instead of validating the one it is
-given.
-
-The JavaScript shims are tested in the app, not here. See
-`src/mobile/shims/viem/getAddress.test.ts` and
-`src/mobile/services/nativeAbi/nativeAbiDecode.test.ts` there.
+MIT. See [LICENSE](./LICENSE).
 
 [ubrn]: https://jhugman.github.io/uniffi-bindgen-react-native/
 [viem]: https://viem.sh
+[extension]: https://github.com/AmbireTech/extension
