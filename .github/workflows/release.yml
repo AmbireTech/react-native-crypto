@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - 'v*'
+  # A manual run builds both platforms and packs the tarball without publishing,
+  # so the release path can be proven before a version number is spent on it.
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to npm. Leave off to build and pack only.
+        type: boolean
+        default: false
 
 env:
   ANDROID_JNI_LIBS: android/src/main/jniLibs
@@ -70,8 +78,8 @@ jobs:
           path: ${{ env.IOS_XCFRAMEWORK }}
           if-no-files-found: error
 
-  publish:
-    name: Publish to npm
+  package:
+    name: Pack and publish
     needs: [build-android, build-ios]
     runs-on: ubuntu-latest
     permissions:
@@ -88,6 +96,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Check the tag against the version in package.json
+        if: github.event_name == 'push'
         run: |
           tag="${GITHUB_REF_NAME#v}"
           version="$(node -p "require('./package.json').version")"
@@ -113,8 +122,21 @@ jobs:
           test -f "$ANDROID_JNI_LIBS/arm64-v8a/libambire_crypto.so"
           test -f "$IOS_XCFRAMEWORK/Info.plist"
 
+      # --ignore-scripts on both npm calls below, because this job installs no
+      # dependencies and the `prepare` script would look for patch-package and
+      # fail. Nothing here needs a prepack step; the binaries arrive as
+      # artifacts.
+      - name: Pack
+        run: npm pack --ignore-scripts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: '*.tgz'
+          if-no-files-found: error
+
       - name: Publish
-        # --ignore-scripts because this job installs no dependencies and the
-        # `prepare` script would look for patch-package and fail. Nothing in
-        # this package needs a prepack step; the binaries arrive as artifacts.
+        # Packs a second time rather than publishing the tarball above, because
+        # provenance is only known to work on the directory form.
+        if: github.event_name == 'push' || inputs.publish
         run: npm publish --provenance --ignore-scripts
