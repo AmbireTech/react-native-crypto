@@ -22,6 +22,12 @@ android:
   # the difference is pure weight in git, in the npm tarball and in CI.
   useSharedLibrary: true
 ios:
+  # Pinned, because ubrn derives this from the package name and scoping the
+  # package changed what it derives. Unscoped it produced AmbireCryptoFramework;
+  # as @ambire/react-native-crypto it produces AmbireReactNativeCryptoFramework,
+  # which the podspec, .gitignore and the npm `files` list know nothing about.
+  # The pod is called AmbireCrypto, so this is the name that matches it.
+  frameworkName: AmbireCryptoFramework
   # Spelled out rather than left to ubrn's defaults, which pick the simulator
   # triple from the host architecture — an Apple Silicon Mac would produce an
   # xcframework an Intel Mac or CI runner cannot use, and vice versa. Both
