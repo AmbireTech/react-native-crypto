@@ -18,6 +18,7 @@ env:
   IOS_XCFRAMEWORK: AmbireCryptoFramework.xcframework
   # npm stage landed in 11.15.0; the npm bundled with Node is often older.
   NPM_VERSION: ^11.15.0
+  STAGE_RESULT: npm-stage-result.json
 
 jobs:
   build-android:
@@ -147,18 +148,24 @@ jobs:
         # known to work on the directory form; trusted publishing stamps it
         # without --provenance.
         if: github.event_name == 'push' || inputs.stage
-        run: npm stage publish --ignore-scripts
+        run: |
+          npm stage publish --ignore-scripts --json > "$RUNNER_TEMP/$STAGE_RESULT"
+          cat "$RUNNER_TEMP/$STAGE_RESULT"
 
       - name: Summarise what is waiting for approval
+        # Reads the stage id from the publish result rather than asking npm,
+        # because only publish trades the OIDC token for an npm one. Any other
+        # npm call here is unauthenticated and fails with E401.
         if: github.event_name == 'push' || inputs.stage
         run: |
-          name="$(node -p "require('./package.json').name")"
+          stage_id="$(jq -er '.[].stageId' "$RUNNER_TEMP/$STAGE_RESULT")"
           {
             echo "### Staged, waiting for approval"
             echo
-            echo '```'
-            npm stage list "$name"
-            echo '```'
+            echo "A maintainer approves it with 2FA:"
             echo
-            echo "Approve with \`npm stage approve <stage-id>\` (needs 2FA)."
+            echo '```sh'
+            echo "npm stage view $stage_id"
+            echo "npm stage approve $stage_id"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
