@@ -183,7 +183,8 @@ npm stage view <stage-id>
 npm stage approve <stage-id>
 ```
 
-The run summary of the release workflow lists what is waiting. `npm stage
+The run summary of the release workflow gives the stage id and the commands to
+approve it. `npm stage
 reject <stage-id>` throws a bad build away instead. Both need npm 11.15.0 or
 later.
 
