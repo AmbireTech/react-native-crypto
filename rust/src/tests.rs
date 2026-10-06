@@ -328,6 +328,74 @@ fn decode_function_result_decodes_a_string_output() {
     assert_eq!(decode_one("string", &data).unwrap(), r#""abc""#);
 }
 
+// viem returns a string's bytes as they are, leading NULs included.
+#[test]
+fn decode_function_result_keeps_leading_nul_bytes_in_a_string_output() {
+    let data = format!(
+        "0x{}{}{}",
+        "0000000000000000000000000000000000000000000000000000000000000020",
+        "0000000000000000000000000000000000000000000000000000000000000005",
+        "0000616263000000000000000000000000000000000000000000000000000000"
+    );
+
+    assert_eq!(decode_one("string", &data).unwrap(), r#""\u0000\u0000abc""#);
+}
+
+// viem decodes with `TextDecoder`, which drops one byte-order mark, and only at
+// the very start.
+#[test]
+fn decode_function_result_drops_one_leading_byte_order_mark_from_a_string_output() {
+    let string_data = |body: &str| {
+        format!(
+            "0x{}{:064x}{:0<64}",
+            "0000000000000000000000000000000000000000000000000000000000000020",
+            body.len() / 2,
+            body
+        )
+    };
+
+    for (body, expected) in [
+        ("efbbbf61", r#""a""#),
+        ("efbbbfefbbbf61", "\"\u{feff}a\""),
+        ("00efbbbf61", "\"\\u0000\u{feff}a\""),
+        ("61efbbbf", "\"a\u{feff}\""),
+    ] {
+        assert_eq!(
+            decode_one("string", &string_data(body)).unwrap(),
+            expected,
+            "string bytes {body}"
+        );
+    }
+}
+
+/// A function returning one empty tuple, which `one_output_abi` cannot express
+/// because it gives the output no `components`.
+const EMPTY_TUPLE_OUTPUT_ABI: &str = r#"[
+    {"type":"function","name":"g","inputs":[],"outputs":[{"name":"","type":"tuple","components":[]}],"stateMutability":"view"}
+]"#;
+
+// alloy's parser cannot read zero-width types, and its decoder collapses them
+// to empty values where viem keeps or rejects them, so they go back to viem.
+#[test]
+fn decode_function_result_hands_over_zero_width_types() {
+    let fixed_array_error = decode_one("uint256[0]", "0x").unwrap_err();
+    assert!(
+        matches!(fixed_array_error, AbiError::InvalidAbi { .. }),
+        "expected uint256[0] to be refused as InvalidAbi, got {fixed_array_error}"
+    );
+
+    let empty_tuple_error = decode_function_result(
+        EMPTY_TUPLE_OUTPUT_ABI.to_string(),
+        "g".to_string(),
+        "0x".to_string(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(empty_tuple_error, AbiError::DecodeFailed { .. }),
+        "expected an empty tuple to be refused as DecodeFailed, got {empty_tuple_error}"
+    );
+}
+
 // Each of these decodes if the prefix is stripped with `trim_start_matches`,
 // and viem reads them as different data than alloy does.
 #[test]
@@ -345,8 +413,8 @@ fn decode_function_result_rejects_data_viem_would_read_differently() {
 }
 
 // Nothing range-checks a decoded word against its declared width, so a
-// contract can return a `uint48` holding far more than 48 bits. viem renders
-// it as a lossy JS number, so refusing sends the call there.
+// contract can return a `uint48` holding far more than 48 bits. viem throws
+// for it, so refusing sends the call there.
 #[test]
 fn decode_function_result_hands_over_a_narrow_int_too_wide_for_a_js_number() {
     let mut word = [0u8; 32];
@@ -358,6 +426,37 @@ fn decode_function_result_hands_over_a_narrow_int_too_wide_for_a_js_number() {
         matches!(error, AbiError::DecodeFailed { .. }),
         "expected a DecodeFailed handover, got {error}"
     );
+}
+
+// viem's `hexToNumber` throws past `Number.MAX_SAFE_INTEGER` on either sign, and
+// a JSON number past it would come back rounded rather than refused.
+#[test]
+fn decode_function_result_hands_over_a_narrow_int_past_the_js_safe_integer_range() {
+    let max_safe = (1i64 << 53) - 1;
+
+    for (ty, value) in [("uint48", max_safe), ("int48", -max_safe)] {
+        let word = I256::try_from(value).unwrap().to_be_bytes::<32>();
+
+        assert_eq!(
+            decode_one(ty, &hex::encode_prefixed(word)).unwrap(),
+            value.to_string(),
+            "{ty} holding {value} is still a safe integer and must decode"
+        );
+    }
+
+    for (ty, value) in [
+        ("uint48", max_safe + 1),
+        ("uint8", max_safe + 2),
+        ("int48", -max_safe - 1),
+    ] {
+        let word = I256::try_from(value).unwrap().to_be_bytes::<32>();
+        let result = decode_one(ty, &hex::encode_prefixed(word));
+
+        assert!(
+            matches!(result, Err(AbiError::DecodeFailed { .. })),
+            "expected {ty} holding {value} to be handed over as DecodeFailed, got {result:?}"
+        );
+    }
 }
 
 #[test]
@@ -566,6 +665,34 @@ fn encode_function_data_rejects_a_fixed_array_of_the_wrong_length() {
     );
 }
 
+/// A function taking one empty tuple, which `one_arg_abi` cannot express because
+/// it gives the input no `components`.
+const EMPTY_TUPLE_INPUT_ABI: &str = r#"[
+    {"type":"function","name":"f","inputs":[{"name":"x","type":"tuple","components":[]}],"outputs":[],"stateMutability":"nonpayable"}
+]"#;
+
+// Same handover as on the decode side. alloy's parser cannot read these, and its
+// encoder would write `string[0]` as static where viem writes an offset.
+#[test]
+fn encode_function_data_hands_over_zero_width_types() {
+    let fixed_array_error = encode_one("uint256[0]", "[]").unwrap_err();
+    assert!(
+        matches!(fixed_array_error, AbiError::InvalidAbi { .. }),
+        "expected uint256[0] to be refused as InvalidAbi, got {fixed_array_error}"
+    );
+
+    let empty_tuple_error = encode_function_data(
+        EMPTY_TUPLE_INPUT_ABI.to_string(),
+        "f".to_string(),
+        "[[]]".to_string(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(empty_tuple_error, AbiError::EncodeFailed { .. }),
+        "expected an empty tuple to be refused as EncodeFailed, got {empty_tuple_error}"
+    );
+}
+
 #[test]
 fn encode_function_data_rejects_a_non_array_for_an_array_parameter() {
     let error = encode_one("uint256[]", "1").unwrap_err();
@@ -686,6 +813,29 @@ fn encode_function_data_rejects_an_address_viem_would_reject() {
         assert!(
             matches!(error, AbiError::InvalidAddress { .. }),
             "expected InvalidAddress for {address}, got {error}"
+        );
+    }
+}
+
+// viem's `encodeAddress` calls `isAddress` in strict mode, which takes an
+// all-lower-case address as it is and holds any other to its EIP-55 checksum.
+#[test]
+fn encode_function_data_holds_a_mixed_case_address_to_its_checksum() {
+    let lower = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
+    let expected = encode_one("address", &format!(r#""{lower}""#)).unwrap();
+
+    let valid = encode_one("address", r#""0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045""#);
+    assert_eq!(valid.unwrap(), expected, "a valid checksum must encode");
+
+    for address in [
+        "0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045",
+        "0xD8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    ] {
+        let result = encode_one("address", &format!(r#""{address}""#));
+
+        assert!(
+            matches!(result, Err(AbiError::InvalidAddress { .. })),
+            "expected InvalidAddress for {address}, got {result:?}"
         );
     }
 }

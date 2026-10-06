@@ -22,6 +22,12 @@ const BIGINT_TAG: &str = "$bigint";
 /// in viem's `utils/abi/decodeAbiParameters.js`.
 const JS_SAFE_INT_BITS: usize = 48;
 
+/// `Number.MAX_SAFE_INTEGER`. viem's `hexToNumber` throws past it.
+const JS_MAX_SAFE_INTEGER: i64 = (1 << 53) - 1;
+
+/// What viem's `TextDecoder` drops from the start of a decoded string.
+const BYTE_ORDER_MARK: char = '\u{feff}';
+
 /// Returns the 32-byte hash. The JS shim handles hex on both sides.
 #[uniffi::export]
 pub fn keccak256(input: Vec<u8>) -> Vec<u8> {
@@ -90,6 +96,20 @@ fn parse_viem_address(value: &str) -> Result<Address, AbiError> {
     Address::from_str(value).map_err(|e| AbiError::InvalidAddress {
         msg: format!("{value}: {e}"),
     })
+}
+
+/// What viem's `encodeAddress` accepts. It calls `isAddress` in strict mode, so
+/// an address with any upper-case digit must also carry a valid EIP-55 checksum.
+fn parse_viem_strict_address(value: &str) -> Result<Address, AbiError> {
+    let parsed = parse_viem_address(value)?;
+
+    if value.bytes().any(|b| b.is_ascii_uppercase()) && parsed.to_checksum(None) != value {
+        return Err(AbiError::InvalidAddress {
+            msg: format!("{value}: invalid checksum"),
+        });
+    }
+
+    Ok(parsed)
 }
 
 /// Lowercase `0x` hex, as ethers' `hexlify` and viem's `bytesToHex` produce it.
@@ -274,6 +294,12 @@ fn int_to_json(decimal: String, size: usize) -> Result<Value, AbiError> {
         msg: format!("{decimal} does not fit the declared {size}-bit width: {e}"),
     })?;
 
+    if !(-JS_MAX_SAFE_INTEGER..=JS_MAX_SAFE_INTEGER).contains(&number) {
+        return Err(AbiError::DecodeFailed {
+            msg: format!("{decimal} is outside the JavaScript safe integer range"),
+        });
+    }
+
     Ok(Value::Number(number.into()))
 }
 
@@ -289,7 +315,9 @@ fn value_to_json(param: &Param, value: &DynSolValue) -> Result<Value, AbiError> 
         DynSolValue::FixedBytes(word, size) => {
             Ok(Value::String(hex::encode_prefixed(&word[..*size])))
         }
-        DynSolValue::String(s) => Ok(Value::String(s.clone())),
+        DynSolValue::String(s) => Ok(Value::String(
+            s.strip_prefix(BYTE_ORDER_MARK).unwrap_or(s).to_string(),
+        )),
         // Elements reuse the same `param`; the value says whether each is a tuple.
         DynSolValue::Array(items) | DynSolValue::FixedArray(items) => Ok(Value::Array(
             items
@@ -545,7 +573,7 @@ fn coerce_scalar(ty: &DynSolType, value: &Value) -> Result<DynSolValue, AbiError
             Ok(DynSolValue::Int(parsed, *size))
         }
         DynSolType::Address => {
-            let parsed = parse_viem_address(arg_to_str(value, "address")?)?;
+            let parsed = parse_viem_strict_address(arg_to_str(value, "address")?)?;
             Ok(DynSolValue::Address(parsed))
         }
         DynSolType::Bytes => {
