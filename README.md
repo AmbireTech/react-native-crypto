@@ -154,7 +154,7 @@ the `prepare` script.
 
 ### Tests
 
-`yarn rust:check` runs `cargo fmt --check`, clippy and the 67 tests in
+`yarn rust:check` runs `cargo fmt --check`, clippy and the 73 tests in
 `rust/src/tests.rs`, which is what CI runs on every PR. They cover the exported
 functions including the viem parity rules that are easy to get wrong: integers
 of 48 bits or fewer decode to plain JavaScript numbers and anything wider to a
